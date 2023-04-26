@@ -6,11 +6,8 @@
 #include <DFRobotDFPlayerMini.h> // https://github.com/DFRobot/DFRobotDFPlayerMini
 
 // Wifi network station credentials
-//#define WIFI_SSID "DankoKenetic"
-//#define WIFI_PASSWORD "qwer1234"
-
-#define WIFI_SSID "Kotiki"
-#define WIFI_PASSWORD "89214241869"
+#define WIFI_SSID "XXX"
+#define WIFI_PASSWORD "XXX"
 
 // Time offset
 #define GMT_OFFSET 60 * 60 * 3  // GMT+3
@@ -18,20 +15,20 @@
 // mDNS name
 #define WEB_PAGE_NAME "uboat"
 
+// Amounts of tracks and sounds
+#define SOUNDS_AMOUNT 38
+#define MUSIC_AMOUNT 10
+
 // Start volume
-#define VOLUME_AT_START 5
+#define VOLUME_AT_START 10
 
 // Equalizer settings. Could be: DFPLAYER_EQ_NORMAL, DFPLAYER_EQ_POP, DFPLAYER_EQ_ROCK, DFPLAYER_EQ_JAZZ, DFPLAYER_EQ_CLASSIC, DFPLAYER_EQ_BASS
-#define EQ_PROFILE DFPLAYER_EQ_NORMAL
+#define EQ_PROFILE DFPLAYER_EQ_ROCK
 
 // Silence between tracks
 #define TRACKS_DELAY 4000
 
 #define TRACK_FINISED_STATE 512 // internal DFPlayer logic
-
-// Folder positions
-#define MUSIC_FOLDER  1
-#define SOUNDS_FOLDER 2
 
 // PINS
 #define WHITE_LED     D4
@@ -46,6 +43,61 @@ ESP8266WebServer server(80);
 DFRobotDFPlayerMini myDFPlayer;
 SoftwareSerial mySoftwareSerial(PLAYER_RX, PLAYER_TX); // RX, TX
 
+// Don't forget to change SOUNDS_AMOUNT and MUSIC_AMOUNT 
+const String musicFiles[MUSIC_AMOUNT] = {
+  "Глубина (Героям - покорителям глубин посвящается)",
+  "Александр Викторов - Родные берега",
+  "Александр Викторов - За подводников",
+  "Александр Викторов - Кукушка",
+  "Александр Викторов - Я-Подводная Лодка!",
+  "Заозерск",
+  "Сергей Иванов - Никуда не денешься из подводной лодки",
+  "Юрий Гуляев - Усталая подлодка",
+  "Андрей Швиденко - Торпедная атака",
+  "На всех широтах"
+};
+
+const String soundFiles[SOUNDS_AMOUNT] = {
+  "01 - Переговоры экипажа",
+  "02 - Звуки волн океана",
+  "03 - Звук корабля попавшего в шторм",
+  "04 - Сонар подводной лодки",
+  "05 - Звуковой сигнал на подводной лодке",
+  "06 - Звук сонара вoенной подводной лодки",
+  "07 - Эффект подводной лодки (субмарина)",
+  "08 - Подводная лодка (сонар)",
+  "09 - Тревога на подводной лодке",
+  "10 - Приборная панель подводной лодки",
+  "11 - Сигнал о возможном столкновении",
+  "12 - Подводная лодка звук гидролокатора",
+  "13 - Гул, шум двигателя подводной лодки",
+  "15 - Писк радара на подводной лодке",
+  "16 - Субмарина, подводная лодка",
+  "17 - Запуск торпеды подводной лодки",
+  "18 - Сигнал, сигнализация, тревога на подводной лодке",
+  "19 - Тревога на подводной лодке",
+  "20 - Сброс давления при открывании люка подводной лодки",
+  "21 - Шум двигателя подводной лодки, пузырьки воды",
+  "22 - Подводная лодка всплывает на поверхность",
+  "23 - Гудок подводной лодки",
+  "24 - Запуск двигателя подводной лодки (внутри)",
+  "25 - Подводная лодка проплывает мимо под водой",
+  "26 - Под водой в подводной лодке",
+  "27 - Запуск торпеды подводной лодки",
+  "28 - Открытие, закрытие люка подводной лодки",
+  "29 - Сигнал, предупреждающий об опасности",
+  "30 - Перископ подводной лодки работает",
+  "31 - Подводная лодка запускает пушку ударных",
+  "32 - Запуск торпеды подводной лодки",
+  "33 - Остановка двигателя подводной лодки",
+  "34 - Закрытие, открытие отсека подводной лодки",
+  "35 - Открытие, закрытие люка подводной лодки (под водой)",
+  "36 - Запуск двигателя, движение подводной лодки (внутри)",
+  "37 - Общие звуки внутри подводной лодки",
+  "38 - Движение подводной лодки на большой скорости",
+  "39 - Запуск двигателя подводной лодки (на воде)"
+};
+
 // State switches
 bool whiteEnabled = false;
 bool redEnabled = false;
@@ -54,8 +106,9 @@ bool externalEnabled = false;
 bool isPlaying = false;
 bool isJustStarted = true;
 bool isPlayingMusic = true;
-uint8_t lastMusicFile = 1;
-uint8_t lastSoundFile = 1;
+uint8_t lastMusicFile = 0; // Counting from 1!
+uint8_t lastSoundFile = 0; // Counting from 1!
+String currentFileName;
 
 // Logging (could be simply redirected to TG for example)
 void logToChat(String const& message) {
@@ -152,6 +205,7 @@ void onNotFound();
 
 void printDetail();
 void playSomething();
+void refreshServerPage();
 
 //----------------------------------------------------------------------
 // Constructor & main loop
@@ -194,6 +248,7 @@ void setup() {
   server.on("/volumeUp", onVolumeUp);
   server.on("/volumeDown", onVolumeDown);
   server.on("/changeFolder", onChangeFolder);
+  server.on("/fileNameRead", onFileNameRead);
   
   server.onNotFound(onNotFound);
   
@@ -222,9 +277,10 @@ void loop() {
     timer = millis();
     if (isPlaying && myDFPlayer.readState() == TRACK_FINISED_STATE) {
       logToChat(F("Player -> next"));
-      isPlayingMusic ? ++lastMusicFile : ++lastSoundFile;
-      //myDFPlayer.next();
+      if (isPlayingMusic)
+		  ++lastMusicFile;
       playSomething();
+      refreshServerPage();
     }
     
   }
@@ -234,31 +290,49 @@ void loop() {
 // Buttons and logic
 //----------------------------------------------------------------------
 
-void playSomething() {
+void refreshServerPage();
+
+void updateCurrentName() {
+  currentFileName = "";
   if (isPlayingMusic) {
-    logToChat(F("Playing music #") + String(lastMusicFile));
-    myDFPlayer.playFolder(MUSIC_FOLDER, lastMusicFile);
-  }
-  else {
-    logToChat(F("Playing sound #") + String(lastSoundFile));
-    myDFPlayer.playFolder(SOUNDS_FOLDER, lastSoundFile);
+    if (lastMusicFile <= MUSIC_AMOUNT && lastMusicFile > 0)
+    currentFileName = musicFiles[lastMusicFile-1];
+  } else {
+    if (lastSoundFile <= SOUNDS_AMOUNT && lastSoundFile > 0)
+        currentFileName = soundFiles[lastSoundFile-1];
   }
 }
 
-void refreshServerPage();
-
 void checkTrackIds() {
   if (lastMusicFile==0)
-    ++lastMusicFile;
+    lastMusicFile = MUSIC_AMOUNT;
+  if (lastMusicFile > MUSIC_AMOUNT)
+    lastMusicFile = 1; // start from the begginging
+
   if (lastSoundFile==0)
-    ++lastSoundFile;
+    lastSoundFile = SOUNDS_AMOUNT;
+  if (lastSoundFile > SOUNDS_AMOUNT)
+    lastSoundFile = 1; // start from the begginging
+}
+
+void playSomething() {
+  checkTrackIds();
+  updateCurrentName();
+  if (isPlayingMusic) {
+    logToChat(F("Playing music #") + String(lastMusicFile) + F(" with name: ") + currentFileName);
+    myDFPlayer.play(SOUNDS_AMOUNT+lastMusicFile);
+  }
+  else {
+      logToChat(F("Playing sound #") + String(lastSoundFile) + F(" with name: ") + currentFileName);
+    myDFPlayer.play(lastSoundFile);
+  }
 }
 
 void onWhite() {
   whiteEnabled = !whiteEnabled;
   redEnabled = false;
 	blueEnabled = false;
-  externalEnabled = false;
+  //externalEnabled = false;
   refreshServerPage();
 }
 
@@ -266,7 +340,6 @@ void onRed() {
   whiteEnabled = false;
   redEnabled = !redEnabled;
 	blueEnabled = false;
-  externalEnabled = false;
   refreshServerPage();
 }
 
@@ -274,14 +347,10 @@ void onBlue() {
   whiteEnabled = false;
   redEnabled = false;
 	blueEnabled = !blueEnabled;
-  externalEnabled = false;
   refreshServerPage();
 }
 
 void onExternal()  {
-  whiteEnabled = false;
-  redEnabled = false;
-	blueEnabled = false;
   externalEnabled = !externalEnabled;
   refreshServerPage();
 }
@@ -297,38 +366,31 @@ void onPlayPause() {
       isPlayingMusic ? ++lastMusicFile : ++lastSoundFile;
       
       logToChat(F("Player -> next"));
-      //myDFPlayer.next();
       playSomething();
     }
     else {
-      logToChat(F("Player -> start"));
-      //myDFPlayer.start();
-      playSomething();
+      logToChat(F("Player -> resume"));
+      myDFPlayer.start();
     }
   }
   refreshServerPage();
 }
 
 void onNextTrack() {
-  if (!isPlaying)
-    isPlaying = true;
+  isPlaying = true;
   isPlayingMusic ? ++lastMusicFile : ++lastSoundFile;
 
   logToChat(F("Player -> next"));
-  //myDFPlayer.next();
   playSomething();
 
   refreshServerPage();
 }
 
 void onPrevTrack() {
-  if (!isPlaying)
-    isPlaying = true;
+  isPlaying = true;
   isPlayingMusic ? --lastMusicFile : --lastSoundFile;
-  checkTrackIds();
 
   logToChat(F("Player -> prev"));
-  //myDFPlayer.previous();
   playSomething();
 
   refreshServerPage();
@@ -350,8 +412,15 @@ void onVolumeDown() {
 
 void onChangeFolder() {
   isPlayingMusic = !isPlayingMusic;
-  playSomething();
+  if (isPlaying)
+    playSomething();
+  else
+    updateCurrentName();
   refreshServerPage();
+}
+
+void onFileNameRead() {
+ server.send(200, "text/plane", currentFileName);
 }
 
 //----------------------------------------------------------------------
@@ -367,12 +436,6 @@ void onNotFound(){
 }
 
 void refreshServerPage() {
-  //EEPROM.write(1, whiteEnabled);
-  //EEPROM.write(2, redEnabled);
-  //EEPROM.write(3, blueEnabled);
-  //EEPROM.write(4, externalEnabled);  
-  //EEPROM.commit();
-  //logToChat("upd");
   server.send(200, "text/html", SendHTML());   
 }
 
@@ -382,7 +445,7 @@ String SendHTML() {
   ptr += "<title>Подводна лодка</title>";
   ptr += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";
   ptr += "body{margin-top: 25px;} h1 {color: #444444;margin: 50px auto 30px;} h3 {color: #444444;margin-bottom: 25px;}";
-  ptr += ".button {display: block;width: 95px;background-color: #1abc9c;border: none;color: white;padding: 7px 15px;text-decoration: none;font-size: 20px;margin: 0px auto 15px;cursor: pointer;border-radius: 4px;}";
+  ptr += ".button {display: block;width: 100px;background-color: #1abc9c;border: none;color: white;padding: 7px 15px;text-decoration: none;font-size: 20px;margin: 0px auto 15px;cursor: pointer;border-radius: 4px;}";
   ptr += ".button-small {display: block;width: 60px;background-color: #1abc9c;border: none;color: white;padding: 7px 15px;text-decoration: none;font-size: 20px;margin: 0px auto 15px;cursor: pointer;border-radius: 4px;}";
   ptr += ".button-on {background-color: #1abc9c;}";
   ptr += ".button-on:active {background-color: #16a085;}";
@@ -390,8 +453,9 @@ String SendHTML() {
   ptr += ".button-off:active {background-color: #2c3e50;}";
   ptr += "table, td {border:none;}";
   ptr += "p {font-size: 14px;color: #888;margin-bottom: 10px;}";
+  ptr += "marquee {width: 260px}";
   ptr += "</style></head>";
-  ptr += "<body><h2>Подводная лодка</h2>";
+  ptr += "<body><h2>Щука</h2>";
 
   ptr += "<table border=\"1\" cellpadding=\"4\" cellspacing=\"0\" align=\"center\">";
 
@@ -416,14 +480,14 @@ String SendHTML() {
     "<td><a class=\"button button-on\" href=\"/b\">Синий</a></td>";
 
   ptr += externalEnabled ?
-    "<td><a class=\"button button-off\" href=\"/e\">Ходовые</a></td>" 
+    "<td><a class=\"button button-off\" href=\"/e\">Внешние</a></td>" 
     :
-    "<td><a class=\"button button-on\" href=\"/e\">Ходовые</a></td>";
+    "<td><a class=\"button button-on\" href=\"/e\">Внешние</a></td>";
   ptr+="</tr>";
 
   // third row - current track
   ptr += "<tr>";
-  ptr += "<td colspan=\"2\"><marquee>\"Очень-очень-очень-очень-очень длинное название трека\"</marquee></td>";
+  ptr += "<td colspan=\"2\"><marquee id=\"fileName\">" + currentFileName + "</marquee></td>";
   ptr += "</tr>";
 
   // fourth row - play/pause, music/sounds
@@ -432,7 +496,7 @@ String SendHTML() {
   ptr += isPlaying ?
     "<td><a class=\"button button-on\" href=\"/playPause\">Пауза</a></td>"
     :
-    "<td><a class=\"button button-off\" href=\"/playPause\">Воспроизвести</a></td>";
+    "<td><a class=\"button button-off\" href=\"/playPause\">Играть</a></td>";
 
   ptr += isPlayingMusic ?
     "<td><a class=\"button button-on\" href=\"/changeFolder\">Музыка</a></td>"
@@ -443,22 +507,42 @@ String SendHTML() {
 
   // fith row - next/prev track
   ptr += "<tr>";
-  ptr +="<td><a class=\"button-small button-off\" href=\"/nextTrack\"><<</a></td>";
-  ptr +="<td><a class=\"button-small button-off\" href=\"/prevTrack\">>></a></td>";
+  ptr +="<td><a class=\"button button-off\" href=\"/prevTrack\"><<</a></td>";
+  ptr +="<td><a class=\"button button-off\" href=\"/nextTrack\">>></a></td>";
   ptr += "</tr>";
 
   // sixth row - volume down/up
   ptr += "<tr>";
-  ptr +="<td><a class=\"button-small button-off\" href=\"/volumeDown\">-</a></td>";
-  ptr +="<td><a class=\"button-small button-off\" href=\"/volumeUp\">+</a></td>";
-  ptr += "</tr>";
+  ptr +="<td><a class=\"button button-off\" href=\"/volumeDown\">-</a></td>";
+  ptr +="<td><a class=\"button button-off\" href=\"/volumeUp\">+</a></td>";
+  ptr += "</tr></table>";
 
-  ptr += "</table></body></html>";
+  ptr += R"=====(
+    <script>
+    var textValue = "";
+    setInterval(function() {getTrackName();}, 1000); 
+    function getTrackName() {
+      var xhttp = new XMLHttpRequest();
+      xhttp.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          if (textValue!=this.responseText){
+            textValue = this.responseText;
+            document.getElementById("fileName").innerHTML = textValue;
+          }
+        }
+      };
+      xhttp.open("GET", "fileNameRead", true);
+      xhttp.send();
+    }
+    </script>
+    </body></html>
+    )=====";
   return ptr;
 }
 
 //---------------------
-// Player
+// Player specific code
+//---------------------
 
 void printDetail(uint8_t type, int value) {
   switch (type) {
@@ -520,4 +604,7 @@ void printDetail(uint8_t type, int value) {
       break;
   }
 }
+
+
+
 
